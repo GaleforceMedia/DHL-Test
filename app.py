@@ -115,10 +115,11 @@ def load_data():
         master_df['Shipment number'] = master_df['Shipment number'].astype(str).str.replace(r'\.0$', '', regex=True)
         master_df = master_df.drop_duplicates(subset=['Shipment number'], keep='last')
         
-    if 'Delivery due date' in master_df.columns:
-        master_df['Delivery Date Parsed'] = pd.to_datetime(master_df['Delivery due date'], format='%d/%m/%Y', errors='coerce')
+    # Standardize Dispatch Date so we can safely compute the metrics tallies
+    if 'Dispatch date' in master_df.columns:
+        master_df['Dispatch Date Parsed'] = pd.to_datetime(master_df['Dispatch date'], format='%d/%m/%Y', errors='coerce')
         
-    # --- FIX: Blank out Customer Reference for Campaigns ---
+    # --- Blank out Customer Reference for Campaigns ---
     if 'Customer reference' in master_df.columns:
         master_df.loc[master_df['Campaign'] != 'Standard Dispatch', 'Customer reference'] = "-"
         
@@ -131,8 +132,8 @@ try:
         st.warning("No tracking data available. Please upload the latest manifest.")
         st.stop()
 
-    # --- Live Metric Calculations ---
-    today = pd.Timestamp.now('Europe/London').normalize()
+    # --- Live Metric Calculations (Using Dispatch Date) ---
+    today = pd.Timestamp.now('Europe/London').normalize().tz_localize(None)
     start_of_week = today - pd.Timedelta(days=today.dayofweek)
     start_of_month = today.replace(day=1)
     
@@ -141,11 +142,14 @@ try:
     in_transit = len(df[df['Clean Status'].isin(['in transit', 'out for delivery'])])
     delivered_df = df[df['Clean Status'] == 'delivered']
     
-    if 'Delivery Date Parsed' in df.columns:
-        parsed_dates = df['Delivery Date Parsed'].dt.tz_localize('Europe/London', ambiguous='NaT', nonexistent='NaT')
-        delivered_today = len(delivered_df[parsed_dates == today])
-        delivered_week = len(delivered_df[parsed_dates >= start_of_week])
-        delivered_month = len(delivered_df[parsed_dates >= start_of_month])
+    if 'Dispatch Date Parsed' in df.columns:
+        # Strip timezones from parsed dispatch dates to match today perfectly
+        parsed_dispatch_dates = df['Dispatch Date Parsed'].dt.tz_localize(None)
+        delivered_df_dates = delivered_df['Dispatch Date Parsed'].dt.tz_localize(None)
+        
+        delivered_today = len(delivered_df[delivered_df_dates == today])
+        delivered_week = len(delivered_df[delivered_df_dates >= start_of_week])
+        delivered_month = len(delivered_df[delivered_df_dates >= start_of_month])
     else:
         delivered_today, delivered_week, delivered_month = 0, 0, 0
 
@@ -166,7 +170,7 @@ try:
 
     st.markdown("<hr><br>", unsafe_allow_html=True)
 
-    # --- Side-by-Side Filtering (Now 4 Columns) ---
+    # --- Side-by-Side Filtering ---
     col_filter1, col_filter2, col_filter3, col_filter4 = st.columns(4)
     
     unique_stores = sorted(df['Business/Recipient name'].dropna().unique())
