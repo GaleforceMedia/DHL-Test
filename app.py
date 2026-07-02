@@ -2,26 +2,59 @@ import streamlit as st
 import pandas as pd
 import glob
 import os
+import requests
+import time
 from datetime import datetime
 
 # Set up page layout (MUST be the first Streamlit command)
 st.set_page_config(page_title="Store POD Portal", layout="wide")
 
+# --- DHL API CONFIGURATION ---
+DHL_API_KEY = "i043Uc7SRU6Zxs2GfxGk4QmWa4SxA6Ac"
+DHL_API_URL = "https://api-eu.dhl.com/track/shipments"
+
+def get_live_dhl_status(tracking_numbers):
+    """Fetches live statuses from DHL API for a list of tracking numbers."""
+    if not tracking_numbers:
+        return {}
+        
+    headers = {"DHL-API-Key": DHL_API_KEY}
+    tracking_string = ",".join(tracking_numbers)
+    params = {"trackingNumber": tracking_string}
+    
+    live_updates = {}
+    try:
+        response = requests.get(DHL_API_URL, headers=headers, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            for shipment in data.get('shipments', []):
+                trk = str(shipment.get('id'))
+                dhl_status = shipment.get('status', {}).get('statusCode')
+                
+                # Map DHL API status codes to our clean UI terms
+                if dhl_status == 'delivered':
+                    live_updates[trk] = 'Delivered'
+                elif dhl_status == 'transit':
+                    live_updates[trk] = 'In Transit'
+                else:
+                    live_updates[trk] = 'Exception'
+    except Exception as e:
+        print(f"DHL API Warning: {e}")
+        
+    return live_updates
+
 # --- Custom CSS for Brand Identity ---
 mamas_and_papas_css = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600&display=swap');
-
     html, body, [class*="css"]  {
         font-family: 'Montserrat', sans-serif !important;
         background-color: #FAFAFA !important;
         color: #333333 !important;
     }
-
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-
     h1 {
         font-weight: 300 !important;
         letter-spacing: 1px;
@@ -30,18 +63,11 @@ mamas_and_papas_css = """
         padding-bottom: 20px;
         margin-bottom: 30px;
     }
-
-    h2, h3 {
-        font-weight: 400 !important;
-        letter-spacing: 0.5px;
-    }
-
     [data-testid="stMetricValue"] {
         font-size: 2rem !important;
         font-weight: 600 !important;
         color: #1A1A1A !important;
     }
-    
     table {
         border-collapse: collapse !important;
         width: 100% !important;
@@ -78,11 +104,10 @@ with col2:
 
 st.markdown("Track and manage network deliveries.")
 
-# Load and combine all CSV data
-@st.cache_data(ttl=60)
+# Load CSV data AND hit DHL API
+@st.cache_data(ttl=900) # Caches data for 15 minutes to prevent DHL API bans
 def load_data():
     all_files = sorted(glob.glob("*.csv"))
-    
     timestamp = pd.Timestamp.now('Europe/London')
     last_updated_str = timestamp.strftime("%A, %d %B %Y at %I:%M %p")
     
@@ -93,7 +118,6 @@ def load_data():
     for file in all_files:
         try:
             temp_df = pd.read_csv(file, dtype={'Shipment number': str})
-            
             base_name = os.path.basename(file).replace('.csv', '')
             
             if 'dashboard summary' in base_name.lower().replace('dashboardsummary', 'dashboard summary'):
@@ -115,18 +139,43 @@ def load_data():
         master_df['Shipment number'] = master_df['Shipment number'].astype(str).str.replace(r'\.0$', '', regex=True)
         master_df = master_df.drop_duplicates(subset=['Shipment number'], keep='last')
         
+    # --- LIVE DHL API INJECTION ---
+    if 'Status' in master_df.columns and 'Shipment number' in master_df.columns:
+        # Find tracking numbers that are NOT delivered yet
+        active_mask = master_df['Status'].astype(str).str.strip().str.lower() != 'delivered'
+        # Drop NaNs and 'nan' strings
+        active_parcels = master_df[active_mask]['Shipment number'].dropna()
+        active_parcels = active_parcels[active_parcels.str.lower() != 'nan'].tolist()
+        
+        if active_parcels:
+            live_statuses = {}
+            chunk_size = 10 # Check 10 parcels at a time
+            
+            for i in range(0, len(active_parcels), chunk_size):
+                chunk = active_parcels[i:i + chunk_size]
+                updates = get_live_dhl_status(chunk)
+                live_statuses.update(updates)
+                time.sleep(0.3) # Tiny pause to respect DHL rate limits
+                
+            # Overwrite the CSV status with the Live DHL Status where applicable
+            master_df['Status'] = master_df.apply(
+                lambda row: live_statuses.get(row['Shipment number'], row['Status']), axis=1
+            )
+    # ------------------------------
+        
     # Standardize Dispatch Date so we can safely compute the metrics tallies
     if 'Dispatch date' in master_df.columns:
         master_df['Dispatch Date Parsed'] = pd.to_datetime(master_df['Dispatch date'], format='%d/%m/%Y', errors='coerce')
         
-    # --- Blank out Customer Reference for Campaigns ---
+    # Blank out Customer Reference for Campaigns
     if 'Customer reference' in master_df.columns:
         master_df.loc[master_df['Campaign'] != 'Standard Dispatch', 'Customer reference'] = "-"
         
     return master_df, last_updated_str
 
 try:
-    df, last_updated = load_data()
+    with st.spinner("Syncing with DHL Network..."):
+        df, last_updated = load_data()
 
     if df.empty:
         st.warning("No tracking data available. Please upload the latest manifest.")
@@ -144,10 +193,9 @@ try:
     delivered_df = df[df['Clean Status'] == 'delivered']
     
     if 'Dispatch Date Parsed' in df.columns:
-        # Strip timezones from parsed dispatch dates to match today perfectly
         delivered_df_dates = delivered_df['Dispatch Date Parsed'].dt.tz_localize(None)
         
-        # FIX: Tally now includes anything dispatched TODAY or YESTERDAY
+        # Tally includes anything dispatched TODAY or YESTERDAY
         delivered_today = len(delivered_df[delivered_df_dates.isin([today, yesterday])])
         delivered_week = len(delivered_df[delivered_df_dates >= start_of_week])
         delivered_month = len(delivered_df[delivered_df_dates >= start_of_month])
@@ -167,7 +215,7 @@ try:
         st.metric(label="Delivered This Month", value=delivered_month)
 
     if last_updated:
-        st.markdown(f"<div style='text-align: center; color: #888888; font-size: 0.85rem; margin-top: 10px; margin-bottom: 20px; font-weight: 400;'>Data last refreshed: {last_updated}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align: center; color: #888888; font-size: 0.85rem; margin-top: 10px; margin-bottom: 20px; font-weight: 400;'>Data last synced: {last_updated}</div>", unsafe_allow_html=True)
 
     st.markdown("<hr><br>", unsafe_allow_html=True)
 
@@ -179,28 +227,20 @@ try:
         
     with col_filter1:
         selected_store = st.selectbox("SEARCH STORE BRANCH", ["All Stores"] + list(unique_stores))
-        
     with col_filter2:
         search_postcode = st.text_input("SEARCH POSTCODE", placeholder="e.g. B78 3JD")
-        
     with col_filter3:
         search_ref = st.text_input("SEARCH JOB NO.", placeholder="(Standard only)")
-        
     with col_filter4:
         selected_campaign = st.selectbox("SEARCH CAMPAIGN", ["All Campaigns"] + list(unique_campaigns))
 
-    # Apply all four filters to the dataframe
     filtered_df = df.copy()
-    
     if selected_store != "All Stores":
         filtered_df = filtered_df[filtered_df['Business/Recipient name'] == selected_store]
-        
     if search_postcode.strip():
         filtered_df = filtered_df[filtered_df['Postal Code'].astype(str).str.contains(search_postcode.strip(), case=False, na=False)]
-        
     if search_ref.strip() and 'Customer reference' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Customer reference'].astype(str).str.contains(search_ref.strip(), case=False, na=False)]
-        
     if selected_campaign != "All Campaigns":
         filtered_df = filtered_df[filtered_df['Campaign'] == selected_campaign]
 
@@ -246,7 +286,7 @@ try:
 
     filtered_df['Status'] = filtered_df['Status'].apply(color_status)
 
-    # Reorder columns to put Campaign & Customer Reference front and center
+    # Reorder columns
     display_cols = [
         'Campaign', 'Customer reference', 'Business/Recipient name', 'Status', 
         'Delivery due date', 'ETA', 'Tracking Link', 'Number of parcels', 
@@ -254,7 +294,6 @@ try:
     ]
     available_cols = [col for col in display_cols if col in filtered_df.columns]
 
-    # Display the interactive styled table
     st.write(
         filtered_df[available_cols].to_html(escape=False, index=False), 
         unsafe_allow_html=True
