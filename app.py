@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import glob
+import os
 from datetime import datetime
 
 # Set up page layout (MUST be the first Streamlit command)
@@ -55,13 +56,13 @@ mamas_and_papas_css = """
         text-transform: uppercase;
         font-size: 0.8rem;
         color: #666666 !important;
-        text-align: left !important; /* Forced left alignment */
+        text-align: left !important;
     }
     td {
         background-color: #FFFFFF !important;
         border-bottom: 1px solid #F0F0F0 !important;
         vertical-align: middle !important;
-        text-align: left !important; /* Forced left alignment */
+        text-align: left !important;
     }
 </style>
 """
@@ -84,7 +85,6 @@ st.markdown("Track and manage network deliveries.")
 def load_data():
     all_files = sorted(glob.glob("*.csv"))
     
-    # Grab the precise time the data is refreshed, localized to UK time
     timestamp = pd.Timestamp.now('Europe/London')
     last_updated_str = timestamp.strftime("%A, %d %B %Y at %I:%M %p")
     
@@ -95,6 +95,18 @@ def load_data():
     for file in all_files:
         try:
             temp_df = pd.read_csv(file)
+            
+            # --- Dynamic Campaign Tagging ---
+            # Get the file name without the .csv extension
+            base_name = os.path.basename(file).replace('.csv', '')
+            
+            # Check if it's a standard dashboard summary export
+            if 'dashboard summary' in base_name.lower().replace('dashboardsummary', 'dashboard summary'):
+                temp_df['Campaign'] = 'Standard Dispatch'
+            else:
+                # If it has a specific name (like "A1 Foamex"), use that as the Campaign
+                temp_df['Campaign'] = base_name
+                
             df_list.append(temp_df)
         except Exception:
             continue
@@ -121,7 +133,6 @@ try:
         st.stop()
 
     # --- Live Metric Calculations ---
-    # We also localize 'today' calculations to ensure accuracy overnight
     today = pd.Timestamp.now('Europe/London').normalize()
     start_of_week = today - pd.Timedelta(days=today.dayofweek)
     start_of_month = today.replace(day=1)
@@ -131,11 +142,8 @@ try:
     in_transit = len(df[df['Clean Status'].isin(['in transit', 'out for delivery'])])
     delivered_df = df[df['Clean Status'] == 'delivered']
     
-    # Calculate dates ensuring we are comparing parsed dates to today correctly
     if 'Delivery Date Parsed' in df.columns:
-        # Localize parsed dates so they match our 'today' timezone
         parsed_dates = df['Delivery Date Parsed'].dt.tz_localize('Europe/London', ambiguous='NaT', nonexistent='NaT')
-        
         delivered_today = len(delivered_df[parsed_dates == today])
         delivered_week = len(delivered_df[parsed_dates >= start_of_week])
         delivered_month = len(delivered_df[parsed_dates >= start_of_month])
@@ -160,14 +168,30 @@ try:
 
     st.markdown("<hr><br>", unsafe_allow_html=True)
 
-    # --- Store Filtering ---
+    # --- Side-by-Side Filtering ---
+    # We use st.columns to put the Store and Campaign filters next to each other
+    col_filter1, col_filter2 = st.columns(2)
+    
     unique_stores = sorted(df['Business/Recipient name'].dropna().unique())
-    selected_store = st.selectbox("SEARCH STORE BRANCH", ["All Stores"] + list(unique_stores))
-
-    if selected_store != "All Stores":
-        filtered_df = df[df['Business/Recipient name'] == selected_store].copy()
+    # Ensure 'Campaign' exists in case of empty initial data frames
+    if 'Campaign' in df.columns:
+        unique_campaigns = sorted(df['Campaign'].dropna().unique())
     else:
-        filtered_df = df.copy()
+        unique_campaigns = []
+        
+    with col_filter1:
+        selected_store = st.selectbox("SEARCH STORE BRANCH", ["All Stores"] + list(unique_stores))
+        
+    with col_filter2:
+        selected_campaign = st.selectbox("SEARCH CAMPAIGN", ["All Campaigns"] + list(unique_campaigns))
+
+    # Apply both filters to the dataframe
+    filtered_df = df.copy()
+    if selected_store != "All Stores":
+        filtered_df = filtered_df[filtered_df['Business/Recipient name'] == selected_store]
+        
+    if selected_campaign != "All Campaigns":
+        filtered_df = filtered_df[filtered_df['Campaign'] == selected_campaign]
 
     # --- Dynamic Carrier Link Generation ---
     def make_clickable(shipment_num):
@@ -198,9 +222,9 @@ try:
 
     filtered_df['Status'] = filtered_df['Status'].apply(color_status)
 
-    # Reorder columns for optimal readability
+    # Reorder columns to put Campaign front and center
     display_cols = [
-        'Business/Recipient name', 'Status', 'Delivery due date', 'ETA', 
+        'Campaign', 'Business/Recipient name', 'Status', 'Delivery due date', 'ETA', 
         'Tracking Link', 'Number of parcels', 'Weight', 'Shipment number', 'Postal Code'
     ]
     available_cols = [col for col in display_cols if col in filtered_df.columns]
