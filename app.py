@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import glob
-import os
 from datetime import datetime
 
 # Set up page layout (MUST be the first Streamlit command)
@@ -56,11 +55,13 @@ mamas_and_papas_css = """
         text-transform: uppercase;
         font-size: 0.8rem;
         color: #666666 !important;
+        text-align: left !important; /* Forced left alignment */
     }
     td {
         background-color: #FFFFFF !important;
         border-bottom: 1px solid #F0F0F0 !important;
         vertical-align: middle !important;
+        text-align: left !important; /* Forced left alignment */
     }
 </style>
 """
@@ -78,18 +79,17 @@ with col2:
 
 st.markdown("Track and manage network deliveries.")
 
-# Load and combine all CSV data, and get the latest file timestamp
+# Load and combine all CSV data
 @st.cache_data(ttl=60)
 def load_data():
     all_files = sorted(glob.glob("*.csv"))
     
-    if not all_files:
-        return pd.DataFrame(), None
-        
-    # Find the newest file based on exactly when it was modified/uploaded
-    latest_file = max(all_files, key=os.path.getmtime)
-    timestamp = datetime.fromtimestamp(os.path.getmtime(latest_file))
+    # Grab the precise time the data is refreshed, localized to UK time
+    timestamp = pd.Timestamp.now('Europe/London')
     last_updated_str = timestamp.strftime("%A, %d %B %Y at %I:%M %p")
+    
+    if not all_files:
+        return pd.DataFrame(), last_updated_str
         
     df_list = []
     for file in all_files:
@@ -100,7 +100,7 @@ def load_data():
             continue
             
     if not df_list:
-        return pd.DataFrame(), None
+        return pd.DataFrame(), last_updated_str
         
     master_df = pd.concat(df_list, ignore_index=True)
     master_df.columns = master_df.columns.str.strip()
@@ -121,7 +121,8 @@ try:
         st.stop()
 
     # --- Live Metric Calculations ---
-    today = pd.Timestamp.today().normalize()
+    # We also localize 'today' calculations to ensure accuracy overnight
+    today = pd.Timestamp.now('Europe/London').normalize()
     start_of_week = today - pd.Timedelta(days=today.dayofweek)
     start_of_month = today.replace(day=1)
     
@@ -130,9 +131,16 @@ try:
     in_transit = len(df[df['Clean Status'].isin(['in transit', 'out for delivery'])])
     delivered_df = df[df['Clean Status'] == 'delivered']
     
-    delivered_today = len(delivered_df[delivered_df['Delivery Date Parsed'] == today])
-    delivered_week = len(delivered_df[delivered_df['Delivery Date Parsed'] >= start_of_week])
-    delivered_month = len(delivered_df[delivered_df['Delivery Date Parsed'] >= start_of_month])
+    # Calculate dates ensuring we are comparing parsed dates to today correctly
+    if 'Delivery Date Parsed' in df.columns:
+        # Localize parsed dates so they match our 'today' timezone
+        parsed_dates = df['Delivery Date Parsed'].dt.tz_localize('Europe/London', ambiguous='NaT', nonexistent='NaT')
+        
+        delivered_today = len(delivered_df[parsed_dates == today])
+        delivered_week = len(delivered_df[parsed_dates >= start_of_week])
+        delivered_month = len(delivered_df[parsed_dates >= start_of_month])
+    else:
+        delivered_today, delivered_week, delivered_month = 0, 0, 0
 
     # --- Display Top Metrics ---
     st.markdown("<br>", unsafe_allow_html=True)
