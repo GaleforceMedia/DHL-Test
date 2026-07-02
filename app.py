@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import glob
+import os
 from datetime import datetime
 
 # Set up page layout (MUST be the first Streamlit command)
@@ -19,12 +20,10 @@ mamas_and_papas_css = """
         color: #333333 !important;
     }
 
-    /* Hide Streamlit Menu, Footer, and Header */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
 
-    /* Style the main title */
     h1 {
         font-weight: 300 !important;
         letter-spacing: 1px;
@@ -34,20 +33,17 @@ mamas_and_papas_css = """
         margin-bottom: 30px;
     }
 
-    /* Style subheaders */
     h2, h3 {
         font-weight: 400 !important;
         letter-spacing: 0.5px;
     }
 
-    /* Style the metric boxes */
     [data-testid="stMetricValue"] {
         font-size: 2rem !important;
         font-weight: 600 !important;
         color: #1A1A1A !important;
     }
     
-    /* Clean up dataframe borders */
     table {
         border-collapse: collapse !important;
         width: 100% !important;
@@ -71,7 +67,6 @@ mamas_and_papas_css = """
 st.markdown(mamas_and_papas_css, unsafe_allow_html=True)
 
 # --- Header Section ---
-# Pulls the logo file directly from your GitHub repository
 col1, col2 = st.columns([1, 5])
 with col1:
     try:
@@ -83,13 +78,18 @@ with col2:
 
 st.markdown("Track and manage network deliveries.")
 
-# Load and combine all CSV data
+# Load and combine all CSV data, and get the latest file timestamp
 @st.cache_data(ttl=60)
 def load_data():
     all_files = sorted(glob.glob("*.csv"))
     
     if not all_files:
-        return pd.DataFrame()
+        return pd.DataFrame(), None
+        
+    # Find the newest file based on exactly when it was modified/uploaded
+    latest_file = max(all_files, key=os.path.getmtime)
+    timestamp = datetime.fromtimestamp(os.path.getmtime(latest_file))
+    last_updated_str = timestamp.strftime("%A, %d %B %Y at %I:%M %p")
         
     df_list = []
     for file in all_files:
@@ -100,7 +100,7 @@ def load_data():
             continue
             
     if not df_list:
-        return pd.DataFrame()
+        return pd.DataFrame(), None
         
     master_df = pd.concat(df_list, ignore_index=True)
     master_df.columns = master_df.columns.str.strip()
@@ -111,10 +111,10 @@ def load_data():
     if 'Delivery due date' in master_df.columns:
         master_df['Delivery Date Parsed'] = pd.to_datetime(master_df['Delivery due date'], format='%d/%m/%Y', errors='coerce')
         
-    return master_df
+    return master_df, last_updated_str
 
 try:
-    df = load_data()
+    df, last_updated = load_data()
 
     if df.empty:
         st.warning("No tracking data available. Please upload the latest manifest.")
@@ -146,7 +146,11 @@ try:
     with col4:
         st.metric(label="Delivered This Month", value=delivered_month)
 
-    st.markdown("<br><hr><br>", unsafe_allow_html=True)
+    # --- Display Last Updated Timestamp ---
+    if last_updated:
+        st.markdown(f"<div style='text-align: center; color: #888888; font-size: 0.85rem; margin-top: 10px; margin-bottom: 20px; font-weight: 400;'>Data last refreshed: {last_updated}</div>", unsafe_allow_html=True)
+
+    st.markdown("<hr><br>", unsafe_allow_html=True)
 
     # --- Store Filtering ---
     unique_stores = sorted(df['Business/Recipient name'].dropna().unique())
