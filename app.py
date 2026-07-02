@@ -7,7 +7,6 @@ from datetime import datetime
 st.set_page_config(page_title="Store POD Portal", layout="wide")
 
 # --- Custom CSS for Brand Identity ---
-# This hides Streamlit artifacts, imports a clean Google Font, and applies a minimalist UI
 mamas_and_papas_css = """
 <style>
     /* Import geometric sans-serif font */
@@ -16,8 +15,8 @@ mamas_and_papas_css = """
     /* Apply font and soft background to the whole app */
     html, body, [class*="css"]  {
         font-family: 'Montserrat', sans-serif !important;
-        background-color: #FAFAFA !important; /* Very soft warm off-white */
-        color: #333333 !important; /* Dark grey instead of harsh black */
+        background-color: #FAFAFA !important;
+        color: #333333 !important;
     }
 
     /* Hide Streamlit Menu, Footer, and Header */
@@ -72,11 +71,13 @@ mamas_and_papas_css = """
 st.markdown(mamas_and_papas_css, unsafe_allow_html=True)
 
 # --- Header Section ---
-# You can replace this URL with a direct link to their actual logo file hosted online
-logo_url = "https://upload.wikimedia.org/wikipedia/en/thumb/3/3d/Mamas_%26_Papas_logo.svg/1200px-Mamas_%26_Papas_logo.svg.png"
+# Pulls the logo file directly from your GitHub repository
 col1, col2 = st.columns([1, 5])
 with col1:
-    st.image(logo_url, width=150)
+    try:
+        st.image("logo.png", width=150)
+    except FileNotFoundError:
+        st.error("Logo missing")
 with col2:
     st.title("Store Delivery Portal")
 
@@ -161,7 +162,6 @@ try:
         if pd.isna(shipment_num):
             return ""
         url = f"https://www.dhl.com/en/express/tracking.html?AWB={shipment_num}"
-        # Styled as a subtle text link rather than a heavy button
         return f'<a href="{url}" target="_blank" style="color: #666666; text-decoration: underline; font-weight: 600;">Track Order</a>'
 
     filtered_df['Tracking Link'] = filtered_df['Shipment number'].apply(make_clickable)
@@ -169,18 +169,17 @@ try:
     # --- Colour Coded Status Badges ---
     def color_status(status_val):
         val_lower = str(status_val).strip().lower()
-        # Softer, more muted brand-aligned colours
-        bg_color = "#E0E0E0" # Neutral Grey
+        bg_color = "#E0E0E0" 
         text_color = "#333333"
         
         if val_lower == 'delivered':
-            bg_color = "#D4EDDA" # Soft mint green
+            bg_color = "#D4EDDA" 
             text_color = "#155724"
         elif val_lower in ['in transit', 'out for delivery']:
-            bg_color = "#FFF3CD" # Soft warm yellow/orange
+            bg_color = "#FFF3CD" 
             text_color = "#856404"
         elif 'exception' in val_lower or 'delay' in val_lower:
-            bg_color = "#F8D7DA" # Soft rose red
+            bg_color = "#F8D7DA" 
             text_color = "#721C24"
             
         return f'<span style="background-color: {bg_color}; color: {text_color}; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; text-transform: uppercase;">{status_val}</span>'
