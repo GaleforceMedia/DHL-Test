@@ -4,16 +4,14 @@ import glob
 import os
 from datetime import datetime
 
-# Set up page layout (MUST be the first Streamlit command)
+# Set up page layout
 st.set_page_config(page_title="Store POD Portal", layout="wide")
 
 # --- Custom CSS for Brand Identity ---
 mamas_and_papas_css = """
 <style>
-    /* Import geometric sans-serif font */
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600&display=swap');
 
-    /* Apply font and soft background to the whole app */
     html, body, [class*="css"]  {
         font-family: 'Montserrat', sans-serif !important;
         background-color: #FAFAFA !important;
@@ -94,17 +92,14 @@ def load_data():
     df_list = []
     for file in all_files:
         try:
-            temp_df = pd.read_csv(file)
+            # FORCE pandas to read Shipment number as a string to prevent formatting issues
+            temp_df = pd.read_csv(file, dtype={'Shipment number': str})
             
-            # --- Dynamic Campaign Tagging ---
-            # Get the file name without the .csv extension
             base_name = os.path.basename(file).replace('.csv', '')
             
-            # Check if it's a standard dashboard summary export
             if 'dashboard summary' in base_name.lower().replace('dashboardsummary', 'dashboard summary'):
                 temp_df['Campaign'] = 'Standard Dispatch'
             else:
-                # If it has a specific name (like "A1 Foamex"), use that as the Campaign
                 temp_df['Campaign'] = base_name
                 
             df_list.append(temp_df)
@@ -118,6 +113,8 @@ def load_data():
     master_df.columns = master_df.columns.str.strip()
     
     if 'Shipment number' in master_df.columns:
+        # Clean the string to remove any weird '.0' that might have snuck in
+        master_df['Shipment number'] = master_df['Shipment number'].astype(str).str.replace(r'\.0$', '', regex=True)
         master_df = master_df.drop_duplicates(subset=['Shipment number'], keep='last')
         
     if 'Delivery due date' in master_df.columns:
@@ -162,18 +159,15 @@ try:
     with col4:
         st.metric(label="Delivered This Month", value=delivered_month)
 
-    # --- Display Last Updated Timestamp ---
     if last_updated:
         st.markdown(f"<div style='text-align: center; color: #888888; font-size: 0.85rem; margin-top: 10px; margin-bottom: 20px; font-weight: 400;'>Data last refreshed: {last_updated}</div>", unsafe_allow_html=True)
 
     st.markdown("<hr><br>", unsafe_allow_html=True)
 
     # --- Side-by-Side Filtering ---
-    # We use st.columns to put the Store and Campaign filters next to each other
     col_filter1, col_filter2 = st.columns(2)
     
     unique_stores = sorted(df['Business/Recipient name'].dropna().unique())
-    # Ensure 'Campaign' exists in case of empty initial data frames
     if 'Campaign' in df.columns:
         unique_campaigns = sorted(df['Campaign'].dropna().unique())
     else:
@@ -185,7 +179,6 @@ try:
     with col_filter2:
         selected_campaign = st.selectbox("SEARCH CAMPAIGN", ["All Campaigns"] + list(unique_campaigns))
 
-    # Apply both filters to the dataframe
     filtered_df = df.copy()
     if selected_store != "All Stores":
         filtered_df = filtered_df[filtered_df['Business/Recipient name'] == selected_store]
@@ -195,9 +188,11 @@ try:
 
     # --- Dynamic Carrier Link Generation ---
     def make_clickable(shipment_num):
-        if pd.isna(shipment_num):
+        # We ensure it's treated purely as a clean string for the URL
+        if pd.isna(shipment_num) or str(shipment_num).strip().lower() == 'nan':
             return ""
-        url = f"https://www.dhl.com/en/express/tracking.html?AWB={shipment_num}"
+        clean_num = str(shipment_num).strip()
+        url = f"https://www.dhl.com/en/express/tracking.html?AWB={clean_num}"
         return f'<a href="{url}" target="_blank" style="color: #666666; text-decoration: underline; font-weight: 600;">Track Order</a>'
 
     filtered_df['Tracking Link'] = filtered_df['Shipment number'].apply(make_clickable)
@@ -222,14 +217,12 @@ try:
 
     filtered_df['Status'] = filtered_df['Status'].apply(color_status)
 
-    # Reorder columns to put Campaign front and center
     display_cols = [
         'Campaign', 'Business/Recipient name', 'Status', 'Delivery due date', 'ETA', 
         'Tracking Link', 'Number of parcels', 'Weight', 'Shipment number', 'Postal Code'
     ]
     available_cols = [col for col in display_cols if col in filtered_df.columns]
 
-    # Display the interactive styled table
     st.write(
         filtered_df[available_cols].to_html(escape=False, index=False), 
         unsafe_allow_html=True
