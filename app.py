@@ -4,14 +4,16 @@ import glob
 import os
 from datetime import datetime
 
-# Set up page layout
+# Set up page layout (MUST be the first Streamlit command)
 st.set_page_config(page_title="Store POD Portal", layout="wide")
 
 # --- Custom CSS for Brand Identity ---
 mamas_and_papas_css = """
 <style>
+    /* Import geometric sans-serif font */
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600&display=swap');
 
+    /* Apply font and soft background to the whole app */
     html, body, [class*="css"]  {
         font-family: 'Montserrat', sans-serif !important;
         background-color: #FAFAFA !important;
@@ -92,9 +94,10 @@ def load_data():
     df_list = []
     for file in all_files:
         try:
-            # FORCE pandas to read Shipment number as a string to prevent formatting issues
+            # Added dtype string enforcement to protect tracking numbers from scientific notation
             temp_df = pd.read_csv(file, dtype={'Shipment number': str})
             
+            # --- Dynamic Campaign Tagging ---
             base_name = os.path.basename(file).replace('.csv', '')
             
             if 'dashboard summary' in base_name.lower().replace('dashboardsummary', 'dashboard summary'):
@@ -113,7 +116,7 @@ def load_data():
     master_df.columns = master_df.columns.str.strip()
     
     if 'Shipment number' in master_df.columns:
-        # Clean the string to remove any weird '.0' that might have snuck in
+        # Clean the tracking string just in case pandas adds a .0 to the end
         master_df['Shipment number'] = master_df['Shipment number'].astype(str).str.replace(r'\.0$', '', regex=True)
         master_df = master_df.drop_duplicates(subset=['Shipment number'], keep='last')
         
@@ -159,13 +162,14 @@ try:
     with col4:
         st.metric(label="Delivered This Month", value=delivered_month)
 
+    # --- Display Last Updated Timestamp ---
     if last_updated:
         st.markdown(f"<div style='text-align: center; color: #888888; font-size: 0.85rem; margin-top: 10px; margin-bottom: 20px; font-weight: 400;'>Data last refreshed: {last_updated}</div>", unsafe_allow_html=True)
 
     st.markdown("<hr><br>", unsafe_allow_html=True)
 
-    # --- Side-by-Side Filtering ---
-    col_filter1, col_filter2 = st.columns(2)
+    # --- Side-by-Side Filtering (Now 3 Columns) ---
+    col_filter1, col_filter2, col_filter3 = st.columns(3)
     
     unique_stores = sorted(df['Business/Recipient name'].dropna().unique())
     if 'Campaign' in df.columns:
@@ -177,18 +181,39 @@ try:
         selected_store = st.selectbox("SEARCH STORE BRANCH", ["All Stores"] + list(unique_stores))
         
     with col_filter2:
+        # Added a text input box for postcodes
+        search_postcode = st.text_input("SEARCH POSTCODE", placeholder="e.g. B78 3JD")
+        
+    with col_filter3:
         selected_campaign = st.selectbox("SEARCH CAMPAIGN", ["All Campaigns"] + list(unique_campaigns))
 
+    # Apply all three filters to the dataframe
     filtered_df = df.copy()
     if selected_store != "All Stores":
         filtered_df = filtered_df[filtered_df['Business/Recipient name'] == selected_store]
         
+    if search_postcode.strip():
+        # Filters rows where the Postal Code contains whatever was typed (case-insensitive)
+        filtered_df = filtered_df[filtered_df['Postal Code'].astype(str).str.contains(search_postcode.strip(), case=False, na=False)]
+        
     if selected_campaign != "All Campaigns":
         filtered_df = filtered_df[filtered_df['Campaign'] == selected_campaign]
 
+    # --- Formatting Blank Dates & ETAs for Delivered Parcels ---
+    def format_delivered_blanks(row, col_name):
+        val = str(row[col_name]) if pd.notna(row[col_name]) else ""
+        if row['Clean Status'] == 'delivered':
+            # Renders a blank green pill that matches the #D4EDDA delivered colour
+            return '<span style="background-color: #D4EDDA; color: #D4EDDA; padding: 6px 12px; border-radius: 20px; font-size: 0.8rem;">-</span>'
+        return val
+
+    if 'Delivery due date' in filtered_df.columns:
+        filtered_df['Delivery due date'] = filtered_df.apply(lambda r: format_delivered_blanks(r, 'Delivery due date'), axis=1)
+    if 'ETA' in filtered_df.columns:
+        filtered_df['ETA'] = filtered_df.apply(lambda r: format_delivered_blanks(r, 'ETA'), axis=1)
+
     # --- Dynamic Carrier Link Generation ---
     def make_clickable(shipment_num):
-        # We ensure it's treated purely as a clean string for the URL
         if pd.isna(shipment_num) or str(shipment_num).strip().lower() == 'nan':
             return ""
         clean_num = str(shipment_num).strip()
@@ -217,12 +242,14 @@ try:
 
     filtered_df['Status'] = filtered_df['Status'].apply(color_status)
 
+    # Reorder columns to put Campaign front and center
     display_cols = [
         'Campaign', 'Business/Recipient name', 'Status', 'Delivery due date', 'ETA', 
         'Tracking Link', 'Number of parcels', 'Weight', 'Shipment number', 'Postal Code'
     ]
     available_cols = [col for col in display_cols if col in filtered_df.columns]
 
+    # Display the interactive styled table
     st.write(
         filtered_df[available_cols].to_html(escape=False, index=False), 
         unsafe_allow_html=True
