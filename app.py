@@ -134,6 +134,7 @@ try:
 
     # --- Live Metric Calculations (Using Dispatch Date) ---
     today = pd.Timestamp.now('Europe/London').normalize().tz_localize(None)
+    yesterday = today - pd.Timedelta(days=1)
     start_of_week = today - pd.Timedelta(days=today.dayofweek)
     start_of_month = today.replace(day=1)
     
@@ -144,10 +145,10 @@ try:
     
     if 'Dispatch Date Parsed' in df.columns:
         # Strip timezones from parsed dispatch dates to match today perfectly
-        parsed_dispatch_dates = df['Dispatch Date Parsed'].dt.tz_localize(None)
         delivered_df_dates = delivered_df['Dispatch Date Parsed'].dt.tz_localize(None)
         
-        delivered_today = len(delivered_df[delivered_df_dates == today])
+        # FIX: Tally now includes anything dispatched TODAY or YESTERDAY
+        delivered_today = len(delivered_df[delivered_df_dates.isin([today, yesterday])])
         delivered_week = len(delivered_df[delivered_df_dates >= start_of_week])
         delivered_month = len(delivered_df[delivered_df_dates >= start_of_month])
     else:
