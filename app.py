@@ -9,16 +9,13 @@ st.title("📦 Store Proof of Delivery (POD) Dashboard")
 st.markdown("Filter and track upcoming or historical store deliveries easily.")
 
 # Load and combine all CSV data
-@st.cache_data(ttl=60) # Refreshes cache every 60 seconds to catch new GitHub uploads
+@st.cache_data(ttl=60) # Refreshes cache every 60 seconds
 def load_data():
-    # 1. Find ALL CSV files in the repository and sort them alphabetically
-    # (Sorting ensures that if you name files by date, the newest files are read last)
     all_files = sorted(glob.glob("*.csv"))
     
     if not all_files:
         return pd.DataFrame()
         
-    # 2. Read all files and stick them together
     df_list = []
     for file in all_files:
         try:
@@ -31,14 +28,11 @@ def load_data():
         return pd.DataFrame()
         
     master_df = pd.concat(df_list, ignore_index=True)
-    master_df.columns = master_df.columns.str.strip() # Clean column names
+    master_df.columns = master_df.columns.str.strip()
     
-    # 3. Remove duplicates to update statuses. 
-    # By keeping the 'last' occurrence, the newest spreadsheet's status overrides the older ones.
     if 'Shipment number' in master_df.columns:
         master_df = master_df.drop_duplicates(subset=['Shipment number'], keep='last')
         
-    # 4. Parse the dates (UK format DD/MM/YYYY) so Python can do date math
     if 'Delivery due date' in master_df.columns:
         master_df['Delivery Date Parsed'] = pd.to_datetime(master_df['Delivery due date'], format='%d/%m/%Y', errors='coerce')
         
@@ -53,16 +47,12 @@ try:
 
     # --- Live Metric Calculations ---
     today = pd.Timestamp.today().normalize()
-    start_of_week = today - pd.Timedelta(days=today.dayofweek) # Monday of this week
-    start_of_month = today.replace(day=1) # 1st of this month
+    start_of_week = today - pd.Timedelta(days=today.dayofweek)
+    start_of_month = today.replace(day=1)
     
-    # Clean the status strings so "Delivered" matches regardless of uppercase/lowercase/spaces
     df['Clean Status'] = df['Status'].astype(str).str.strip().str.lower()
     
-    # Calculate total in transit
     in_transit = len(df[df['Clean Status'].isin(['in transit', 'out for delivery'])])
-    
-    # Filter only delivered items to calculate delivery timeframes
     delivered_df = df[df['Clean Status'] == 'delivered']
     
     delivered_today = len(delivered_df[delivered_df['Delivery Date Parsed'] == today])
@@ -88,7 +78,6 @@ try:
     unique_stores = sorted(df['Business/Recipient name'].dropna().unique())
     selected_store = st.selectbox("Select your store branch:", ["All Stores"] + list(unique_stores))
 
-    # Filter dataframe based on selection
     if selected_store != "All Stores":
         filtered_df = df[df['Business/Recipient name'] == selected_store].copy()
     else:
@@ -102,6 +91,24 @@ try:
         return f'<a href="{url}" target="_blank">🔗 Track on DHL</a>'
 
     filtered_df['Tracking Link'] = filtered_df['Shipment number'].apply(make_clickable)
+
+    # --- Colour Coded Status Badges ---
+    def color_status(status_val):
+        val_lower = str(status_val).strip().lower()
+        # Default styling
+        bg_color = "#6c757d" # Grey for unknown statuses
+        text_color = "white"
+        
+        if val_lower == 'delivered':
+            bg_color = "#198754" # Green
+        elif val_lower in ['in transit', 'out for delivery']:
+            bg_color = "#fd7e14" # Orange
+        elif 'exception' in val_lower or 'delay' in val_lower:
+            bg_color = "#dc3545" # Red
+            
+        return f'<span style="background-color: {bg_color}; color: {text_color}; padding: 4px 8px; border-radius: 4px; font-weight: bold;">{status_val}</span>'
+
+    filtered_df['Status'] = filtered_df['Status'].apply(color_status)
 
     # Reorder columns for optimal readability
     display_cols = [
