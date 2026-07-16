@@ -15,7 +15,7 @@ st.set_page_config(page_title="Store POD Portal", layout="wide")
 # --- DHL API CONFIGURATION ---
 DHL_API_KEY = "i043Uc7SRU6Zxs2GfxGk4QmWa4SxA6Ac"
 CACHE_FILE = "tracking_cache.json"
-CACHE_EXPIRY = 7200 # 2 hours in seconds
+CACHE_EXPIRY = 14400 # 4 hours in seconds (Saves your 250 daily limit)
 
 def load_cache():
     if os.path.exists(CACHE_FILE):
@@ -65,7 +65,6 @@ def fetch_dhl_status_safe(tracking_numbers):
                 return live_updates, "Success"
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8', errors='ignore')
-        # WE EXPOSE THE EXACT NUMBERS THAT FAILED HERE:
         return {}, f"HTTP {e.code} on [{tracking_str}]: {error_body}"
     except Exception as e:
         return {}, f"Connection Error on [{tracking_str}]: {str(e)}"
@@ -121,7 +120,6 @@ def load_csv_data():
     master_df.columns = master_df.columns.str.strip()
     
     if 'Shipment number' in master_df.columns:
-        # Scrub the tracking numbers cleanly (remove .0, remove all spaces and special characters)
         master_df['Shipment number'] = master_df['Shipment number'].astype(str).str.replace(r'\.0$', '', regex=True)
         master_df['Shipment number'] = master_df['Shipment number'].apply(lambda x: re.sub(r'[^A-Za-z0-9]', '', str(x)))
         master_df = master_df.drop_duplicates(subset=['Shipment number'], keep='last')
@@ -147,7 +145,6 @@ def sync_dhl_api(master_df):
     active_mask = master_df['Status'].astype(str).str.strip().str.lower() != 'delivered'
     active_parcels_raw = master_df[active_mask]['Shipment number'].unique().tolist()
     
-    # Filter out bad tracking numbers so DHL doesn't throw a length error
     active_parcels = [trk for trk in active_parcels_raw if len(trk) >= 10 and trk.lower() != 'nan']
     
     needs_update = []
@@ -162,6 +159,7 @@ def sync_dhl_api(master_df):
             api_stats["vault_hits"] += 1
                 
     if needs_update:
+        # STRICT 1-BY-1 CHECKING: Prevents the 400 Invalid Length Error completely.
         chunk_size = 1 
         for i in range(0, len(needs_update), chunk_size):
             chunk = needs_update[i:i + chunk_size]
@@ -176,11 +174,11 @@ def sync_dhl_api(master_df):
                 cache[trk] = {'status': status, 'timestamp': current_time}
                 api_stats["updated_rows"] += 1
             
-            time.sleep(0.5) 
+            # SLOW DOWN: 1.5 second pause ensures DHL doesn't block you for clicking too fast
+            time.sleep(1.5) 
         
         save_cache(cache)
         
-    # Overwrite the CSV status with the Live Status from the Vault
     master_df['Status'] = master_df.apply(
         lambda row: cache.get(str(row['Shipment number']), {}).get('status', row['Status']), axis=1
     )
