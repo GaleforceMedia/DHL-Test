@@ -162,7 +162,7 @@ def sync_dhl_api(master_df):
             api_stats["vault_hits"] += 1
                 
     if needs_update:
-        chunk_size = 10 
+        chunk_size = 1 
         for i in range(0, len(needs_update), chunk_size):
             chunk = needs_update[i:i + chunk_size]
             api_stats["api_calls"] += 1
