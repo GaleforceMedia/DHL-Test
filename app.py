@@ -6,6 +6,7 @@ import json
 import time
 import urllib.request
 import urllib.error
+import re
 from datetime import datetime
 
 # Set up page layout
@@ -17,7 +18,6 @@ CACHE_FILE = "tracking_cache.json"
 CACHE_EXPIRY = 7200 # 2 hours in seconds
 
 def load_cache():
-    """Loads the hidden vault of tracking data so we don't spam DHL."""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
@@ -27,7 +27,6 @@ def load_cache():
     return {}
 
 def save_cache(cache_data):
-    """Saves live DHL data to the vault."""
     try:
         with open(CACHE_FILE, 'w') as f:
             json.dump(cache_data, f)
@@ -35,15 +34,12 @@ def save_cache(cache_data):
         pass
 
 def fetch_dhl_status_safe(tracking_numbers):
-    """Hits the DHL API with strict, correct headers and returns statuses/errors."""
     if not tracking_numbers:
         return {}, "No numbers to check"
         
     tracking_str = ",".join(tracking_numbers)
     url = f"https://api-eu.dhl.com/track/shipments?trackingNumber={tracking_str}"
     
-    # DHL explicitly requires ONLY the DHL-API-Key header. 
-    # The User-Agent prevents DHL's Apigee firewall from blocking the Python script as a bot.
     headers = {
         "DHL-API-Key": DHL_API_KEY,
         "Accept": "application/json",
@@ -100,7 +96,7 @@ with col2:
 
 st.markdown("Track and manage network deliveries.")
 
-# 1. LOAD CSV DATA (Cached to run instantly)
+# 1. LOAD CSV DATA 
 @st.cache_data(ttl=300) 
 def load_csv_data():
     all_files = sorted(glob.glob("*.csv"))
@@ -124,7 +120,9 @@ def load_csv_data():
     master_df.columns = master_df.columns.str.strip()
     
     if 'Shipment number' in master_df.columns:
+        # Scrub the tracking numbers cleanly (remove .0, remove all spaces and special characters)
         master_df['Shipment number'] = master_df['Shipment number'].astype(str).str.replace(r'\.0$', '', regex=True)
+        master_df['Shipment number'] = master_df['Shipment number'].apply(lambda x: re.sub(r'[^A-Za-z0-9]', '', str(x)))
         master_df = master_df.drop_duplicates(subset=['Shipment number'], keep='last')
         
     if 'Dispatch date' in master_df.columns:
@@ -135,7 +133,7 @@ def load_csv_data():
         
     return master_df
 
-# 2. SYNC WITH DHL (Protects rate limit using Vault)
+# 2. SYNC WITH DHL
 def sync_dhl_api(master_df):
     api_stats = {"vault_hits": 0, "api_calls": 0, "errors": [], "updated_rows": 0}
     
@@ -145,10 +143,11 @@ def sync_dhl_api(master_df):
     cache = load_cache()
     current_time = time.time()
     
-    # Find active tracking numbers
     active_mask = master_df['Status'].astype(str).str.strip().str.lower() != 'delivered'
-    active_parcels = master_df[active_mask]['Shipment number'].dropna().astype(str)
-    active_parcels = active_parcels[active_parcels.str.lower() != 'nan'].unique().tolist()
+    active_parcels_raw = master_df[active_mask]['Shipment number'].unique().tolist()
+    
+    # NEW: Filter out bad tracking numbers so DHL doesn't throw a length error
+    active_parcels = [trk for trk in active_parcels_raw if len(trk) >= 10 and trk.lower() != 'nan']
     
     needs_update = []
     for trk in active_parcels:
@@ -176,7 +175,7 @@ def sync_dhl_api(master_df):
                 cache[trk] = {'status': status, 'timestamp': current_time}
                 api_stats["updated_rows"] += 1
             
-            time.sleep(0.5) # Protect rate limit
+            time.sleep(0.5) 
         
         save_cache(cache)
         
@@ -269,7 +268,7 @@ try:
 
     # --- Dynamic Carrier Link Generation ---
     def make_clickable(shipment_num):
-        if pd.isna(shipment_num) or str(shipment_num).strip().lower() == 'nan':
+        if pd.isna(shipment_num) or str(shipment_num).strip().lower() == 'nan' or len(str(shipment_num)) < 5:
             return ""
         clean_num = str(shipment_num).strip()
         url = f"https://www.dhl.com/en/express/tracking.html?AWB={clean_num}"
@@ -292,7 +291,6 @@ try:
 
     filtered_df['Status'] = filtered_df['Status'].apply(color_status)
 
-    # Reorder columns
     display_cols = [
         'Campaign', 'Customer reference', 'Business/Recipient name', 'Status', 
         'Delivery due date', 'ETA', 'Tracking Link', 'Number of parcels', 
