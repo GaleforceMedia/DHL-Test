@@ -9,16 +9,16 @@ import urllib.error
 import base64
 from datetime import datetime
 
-# Set up page layout (MUST be the first Streamlit command)
+# Set up page layout
 st.set_page_config(page_title="Store POD Portal", layout="wide")
 
 # --- DHL API CONFIGURATION ---
 DHL_API_KEY = "i043Uc7SRU6Zxs2GfxGk4QmWa4SxA6Ac"
 DHL_API_SECRET = "oaRzDeAhrwHmHmGy"
 CACHE_FILE = "tracking_cache.json"
+CACHE_EXPIRY = 7200 # 2 hours in seconds
 
 def load_cache():
-    """Loads the hidden vault of tracking data so we don't spam DHL."""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
@@ -28,7 +28,6 @@ def load_cache():
     return {}
 
 def save_cache(cache_data):
-    """Saves live DHL data to the vault."""
     try:
         with open(CACHE_FILE, 'w') as f:
             json.dump(cache_data, f)
@@ -36,22 +35,23 @@ def save_cache(cache_data):
         pass
 
 def fetch_dhl_status_safe(tracking_numbers):
-    """A bulletproof native fetcher that forces its way through DHL's gateway."""
+    """Hits the DHL API and returns statuses AND any error messages for debugging."""
     if not tracking_numbers:
-        return {}
+        return {}, "No numbers to check"
         
     tracking_str = ",".join(tracking_numbers)
     url = f"https://api-eu.dhl.com/track/shipments?trackingNumber={tracking_str}"
     
     auth_str = base64.b64encode(f"{DHL_API_KEY}:{DHL_API_SECRET}".encode('utf-8')).decode('utf-8')
     
-    # DHL is picky. We will blindly try all 3 authentication standards until one works.
+    # The Unified Tracking API usually requires only the API Key in the header, 
+    # but we force the Accept header so their Apigee firewall doesn't block us.
     headers_to_try = [
         {"DHL-API-Key": DHL_API_KEY, "Accept": "application/json"},
-        {"DHL-API-Key": DHL_API_KEY, "Authorization": f"Basic {auth_str}", "Accept": "application/json"},
-        {"Authorization": f"Bearer {DHL_API_KEY}", "Accept": "application/json"}
+        {"DHL-API-Key": DHL_API_KEY, "Authorization": f"Basic {auth_str}", "Accept": "application/json"}
     ]
     
+    last_error = ""
     for headers in headers_to_try:
         req = urllib.request.Request(url, headers=headers)
         try:
@@ -61,7 +61,7 @@ def fetch_dhl_status_safe(tracking_numbers):
                     live_updates = {}
                     for shipment in data.get('shipments', []):
                         trk = str(shipment.get('id'))
-                        dhl_status = shipment.get('status', {}).get('statusCode')
+                        dhl_status = shipment.get('status', {}).get('statusCode', '').lower()
                         
                         if dhl_status == 'delivered':
                             live_updates[trk] = 'Delivered'
@@ -69,59 +69,27 @@ def fetch_dhl_status_safe(tracking_numbers):
                             live_updates[trk] = 'In Transit'
                         else:
                             live_updates[trk] = 'Exception'
-                    return live_updates
-        except urllib.error.HTTPError:
-            continue # If DHL blocks it, silently move to the next auth strategy
-        except Exception:
+                    return live_updates, "Success"
+        except urllib.error.HTTPError as e:
+            last_error = f"HTTP Error {e.code}: {e.read().decode('utf-8', errors='ignore')}"
+            continue 
+        except Exception as e:
+            last_error = f"Connection Error: {str(e)}"
             continue
             
-    return {} # Return empty if all 3 fail so the app doesn't crash
+    return {}, last_error # If it fails, return the error so we can see it on the dashboard
 
-# --- Custom CSS for Brand Identity ---
+# --- Custom CSS ---
 mamas_and_papas_css = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600&display=swap');
-    html, body, [class*="css"]  {
-        font-family: 'Montserrat', sans-serif !important;
-        background-color: #FAFAFA !important;
-        color: #333333 !important;
-    }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    h1 {
-        font-weight: 300 !important;
-        letter-spacing: 1px;
-        text-transform: uppercase;
-        border-bottom: 1px solid #E0E0E0;
-        padding-bottom: 20px;
-        margin-bottom: 30px;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 2rem !important;
-        font-weight: 600 !important;
-        color: #1A1A1A !important;
-    }
-    table {
-        border-collapse: collapse !important;
-        width: 100% !important;
-        font-size: 0.9rem !important;
-    }
-    th {
-        background-color: #FFFFFF !important;
-        font-weight: 600 !important;
-        border-bottom: 2px solid #E0E0E0 !important;
-        text-transform: uppercase;
-        font-size: 0.8rem;
-        color: #666666 !important;
-        text-align: left !important;
-    }
-    td {
-        background-color: #FFFFFF !important;
-        border-bottom: 1px solid #F0F0F0 !important;
-        vertical-align: middle !important;
-        text-align: left !important;
-    }
+    html, body, [class*="css"]  { font-family: 'Montserrat', sans-serif !important; background-color: #FAFAFA !important; color: #333333 !important; }
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+    h1 { font-weight: 300 !important; letter-spacing: 1px; text-transform: uppercase; border-bottom: 1px solid #E0E0E0; padding-bottom: 20px; margin-bottom: 30px; }
+    [data-testid="stMetricValue"] { font-size: 2rem !important; font-weight: 600 !important; color: #1A1A1A !important; }
+    table { border-collapse: collapse !important; width: 100% !important; font-size: 0.9rem !important; }
+    th { background-color: #FFFFFF !important; font-weight: 600 !important; border-bottom: 2px solid #E0E0E0 !important; text-transform: uppercase; font-size: 0.8rem; color: #666666 !important; text-align: left !important; }
+    td { background-color: #FFFFFF !important; border-bottom: 1px solid #F0F0F0 !important; vertical-align: middle !important; text-align: left !important; }
 </style>
 """
 st.markdown(mamas_and_papas_css, unsafe_allow_html=True)
@@ -132,39 +100,31 @@ with col1:
     try:
         st.image("logo.png", width=150)
     except FileNotFoundError:
-        st.error("Logo missing")
+        pass
 with col2:
     st.title("Store Delivery Portal")
 
 st.markdown("Track and manage network deliveries.")
 
-# Load CSV data AND hit DHL API
-@st.cache_data(ttl=60) 
-def load_data():
+# 1. LOAD CSV DATA (Cached to run instantly)
+@st.cache_data(ttl=300) 
+def load_csv_data():
     all_files = sorted(glob.glob("*.csv"))
-    timestamp = pd.Timestamp.now('Europe/London')
-    last_updated_str = timestamp.strftime("%A, %d %B %Y at %I:%M %p")
-    
     if not all_files:
-        return pd.DataFrame(), last_updated_str
+        return pd.DataFrame()
         
     df_list = []
     for file in all_files:
         try:
             temp_df = pd.read_csv(file, dtype={'Shipment number': str})
             base_name = os.path.basename(file).replace('.csv', '')
-            
-            if 'dashboard summary' in base_name.lower().replace('dashboardsummary', 'dashboard summary'):
-                temp_df['Campaign'] = 'Standard Dispatch'
-            else:
-                temp_df['Campaign'] = base_name
-                
+            temp_df['Campaign'] = 'Standard Dispatch' if 'dashboard summary' in base_name.lower().replace('dashboardsummary', 'dashboard summary') else base_name
             df_list.append(temp_df)
         except Exception:
             continue
             
     if not df_list:
-        return pd.DataFrame(), last_updated_str
+        return pd.DataFrame()
         
     master_df = pd.concat(df_list, ignore_index=True)
     master_df.columns = master_df.columns.str.strip()
@@ -173,79 +133,88 @@ def load_data():
         master_df['Shipment number'] = master_df['Shipment number'].astype(str).str.replace(r'\.0$', '', regex=True)
         master_df = master_df.drop_duplicates(subset=['Shipment number'], keep='last')
         
-    # --- LIVE DHL API INTEGRATION WITH VAULT CACHE ---
-    if 'Status' in master_df.columns and 'Shipment number' in master_df.columns:
-        cache = load_cache()
-        current_time = time.time()
-        CACHE_EXPIRY = 7200 # Forces it to remember DHL's answer for 2 hours (saves your 250 daily limits!)
-        
-        # Find tracking numbers that are NOT delivered yet
-        active_mask = master_df['Status'].astype(str).str.strip().str.lower() != 'delivered'
-        active_parcels = master_df[active_mask]['Shipment number'].dropna().astype(str)
-        active_parcels = active_parcels[active_parcels.str.lower() != 'nan'].unique().tolist()
-        
-        needs_update = []
-        for trk in active_parcels:
-            cached_info = cache.get(trk)
-            if not cached_info:
-                needs_update.append(trk)
-            elif current_time - cached_info.get('timestamp', 0) > CACHE_EXPIRY:
-                if cached_info.get('status') != 'Delivered': # Never re-check a box we know is delivered
-                    needs_update.append(trk)
-                    
-        if needs_update:
-            chunk_size = 10 # Check 10 at a time
-            for i in range(0, len(needs_update), chunk_size):
-                chunk = needs_update[i:i + chunk_size]
-                updates = fetch_dhl_status_safe(chunk)
-                
-                for trk, status in updates.items():
-                    cache[trk] = {'status': status, 'timestamp': current_time}
-                
-                time.sleep(0.5) # Protect rate limit
-            
-            save_cache(cache) # Save the vault
-            
-        # Overwrite the CSV status with the Live DHL Status from the Vault
-        master_df['Status'] = master_df.apply(
-            lambda row: cache.get(str(row['Shipment number']), {}).get('status', row['Status']), axis=1
-        )
-    # ------------------------------
-        
-    # Standardize Dispatch Date so we can safely compute the metrics tallies
     if 'Dispatch date' in master_df.columns:
         master_df['Dispatch Date Parsed'] = pd.to_datetime(master_df['Dispatch date'], format='%d/%m/%Y', errors='coerce')
         
-    # Blank out Customer Reference for Campaigns
     if 'Customer reference' in master_df.columns:
         master_df.loc[master_df['Campaign'] != 'Standard Dispatch', 'Customer reference'] = "-"
         
-    return master_df, last_updated_str
+    return master_df
+
+# 2. SYNC WITH DHL (Not cached, actively runs but protects rate limit using Vault)
+def sync_dhl_api(master_df):
+    api_stats = {"vault_hits": 0, "api_calls": 0, "errors": [], "updated_rows": 0}
+    
+    if master_df.empty or 'Status' not in master_df.columns or 'Shipment number' not in master_df.columns:
+        return master_df, api_stats
+        
+    cache = load_cache()
+    current_time = time.time()
+    
+    # Find active tracking numbers
+    active_mask = master_df['Status'].astype(str).str.strip().str.lower() != 'delivered'
+    active_parcels = master_df[active_mask]['Shipment number'].dropna().astype(str)
+    active_parcels = active_parcels[active_parcels.str.lower() != 'nan'].unique().tolist()
+    
+    needs_update = []
+    for trk in active_parcels:
+        cached_info = cache.get(trk)
+        if not cached_info:
+            needs_update.append(trk)
+        elif current_time - cached_info.get('timestamp', 0) > CACHE_EXPIRY:
+            if cached_info.get('status') != 'Delivered':
+                needs_update.append(trk)
+        else:
+            api_stats["vault_hits"] += 1
+                
+    if needs_update:
+        chunk_size = 10 
+        for i in range(0, len(needs_update), chunk_size):
+            chunk = needs_update[i:i + chunk_size]
+            api_stats["api_calls"] += 1
+            
+            updates, error_msg = fetch_dhl_status_safe(chunk)
+            
+            if error_msg != "Success":
+                api_stats["errors"].append(error_msg)
+            
+            for trk, status in updates.items():
+                cache[trk] = {'status': status, 'timestamp': current_time}
+                api_stats["updated_rows"] += 1
+            
+            time.sleep(0.5) # Protect rate limit
+        
+        save_cache(cache)
+        
+    # Overwrite the CSV status with the Live Status from the Vault
+    master_df['Status'] = master_df.apply(
+        lambda row: cache.get(str(row['Shipment number']), {}).get('status', row['Status']), axis=1
+    )
+    
+    return master_df, api_stats
 
 try:
-    # Adding a clean spinner so stores know it's checking live data
-    with st.spinner("Syncing with DHL Network..."):
-        df, last_updated = load_data()
+    df_raw = load_csv_data()
 
-    if df.empty:
-        st.warning("No tracking data available. Please upload the latest manifest.")
+    if df_raw.empty:
+        st.warning("No tracking data available. Please upload the latest CSV manifest.")
         st.stop()
 
-    # --- Live Metric Calculations (Using Dispatch Date) ---
+    with st.spinner("Synchronizing with DHL Network..."):
+        df, stats = sync_dhl_api(df_raw)
+
+    # --- Live Metric Calculations ---
     today = pd.Timestamp.now('Europe/London').normalize().tz_localize(None)
     yesterday = today - pd.Timedelta(days=1)
     start_of_week = today - pd.Timedelta(days=today.dayofweek)
     start_of_month = today.replace(day=1)
     
     df['Clean Status'] = df['Status'].astype(str).str.strip().str.lower()
-    
     in_transit = len(df[df['Clean Status'].isin(['in transit', 'out for delivery'])])
     delivered_df = df[df['Clean Status'] == 'delivered']
     
     if 'Dispatch Date Parsed' in df.columns:
         delivered_df_dates = delivered_df['Dispatch Date Parsed'].dt.tz_localize(None)
-        
-        # Tally includes anything dispatched TODAY or YESTERDAY
         delivered_today = len(delivered_df[delivered_df_dates.isin([today, yesterday])])
         delivered_week = len(delivered_df[delivered_df_dates >= start_of_week])
         delivered_month = len(delivered_df[delivered_df_dates >= start_of_month])
@@ -255,18 +224,20 @@ try:
     # --- Display Top Metrics ---
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(label="In Transit", value=in_transit)
-    with col2:
-        st.metric(label="Delivered Today", value=delivered_today)
-    with col3:
-        st.metric(label="Delivered This Week", value=delivered_week)
-    with col4:
-        st.metric(label="Delivered This Month", value=delivered_month)
+    col1.metric(label="In Transit", value=in_transit)
+    col2.metric(label="Delivered Today", value=delivered_today)
+    col3.metric(label="Delivered This Week", value=delivered_week)
+    col4.metric(label="Delivered This Month", value=delivered_month)
 
-    if last_updated:
-        st.markdown(f"<div style='text-align: center; color: #888888; font-size: 0.85rem; margin-top: 10px; margin-bottom: 20px; font-weight: 400;'>Data last synced: {last_updated}</div>", unsafe_allow_html=True)
-
+    # --- API DIAGNOSTICS READOUT ---
+    timestamp = pd.Timestamp.now('Europe/London').strftime("%A, %d %B %Y at %I:%M %p")
+    diag_color = "#28a745" if not stats["errors"] else "#dc3545"
+    diag_text = f"Data synced: {timestamp} | Vault Hits: {stats['vault_hits']} | Live API Pings: {stats['api_calls']}"
+    
+    if stats["errors"]:
+        diag_text += f" | ⚠️ API ERROR: {stats['errors'][0]}"
+        
+    st.markdown(f"<div style='text-align: center; color: {diag_color}; font-size: 0.85rem; margin-top: 10px; margin-bottom: 20px; font-weight: 600;'>{diag_text}</div>", unsafe_allow_html=True)
     st.markdown("<hr><br>", unsafe_allow_html=True)
 
     # --- Side-by-Side Filtering ---
@@ -275,14 +246,10 @@ try:
     unique_stores = sorted(df['Business/Recipient name'].dropna().unique())
     unique_campaigns = sorted(df['Campaign'].dropna().unique()) if 'Campaign' in df.columns else []
         
-    with col_filter1:
-        selected_store = st.selectbox("SEARCH STORE BRANCH", ["All Stores"] + list(unique_stores))
-    with col_filter2:
-        search_postcode = st.text_input("SEARCH POSTCODE", placeholder="e.g. B78 3JD")
-    with col_filter3:
-        search_ref = st.text_input("SEARCH JOB NO.", placeholder="(Standard only)")
-    with col_filter4:
-        selected_campaign = st.selectbox("SEARCH CAMPAIGN", ["All Campaigns"] + list(unique_campaigns))
+    selected_store = col_filter1.selectbox("SEARCH STORE BRANCH", ["All Stores"] + list(unique_stores))
+    search_postcode = col_filter2.text_input("SEARCH POSTCODE", placeholder="e.g. B78 3JD")
+    search_ref = col_filter3.text_input("SEARCH JOB NO.", placeholder="(Standard only)")
+    selected_campaign = col_filter4.selectbox("SEARCH CAMPAIGN", ["All Campaigns"] + list(unique_campaigns))
 
     filtered_df = df.copy()
     if selected_store != "All Stores":
@@ -321,17 +288,12 @@ try:
         val_lower = str(status_val).strip().lower()
         bg_color = "#E0E0E0" 
         text_color = "#333333"
-        
         if val_lower == 'delivered':
-            bg_color = "#D4EDDA" 
-            text_color = "#155724"
+            bg_color, text_color = "#D4EDDA", "#155724"
         elif val_lower in ['in transit', 'out for delivery']:
-            bg_color = "#FFF3CD" 
-            text_color = "#856404"
+            bg_color, text_color = "#FFF3CD", "#856404"
         elif 'exception' in val_lower or 'delay' in val_lower:
-            bg_color = "#F8D7DA" 
-            text_color = "#721C24"
-            
+            bg_color, text_color = "#F8D7DA", "#721C24"
         return f'<span style="background-color: {bg_color}; color: {text_color}; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; text-transform: uppercase;">{status_val}</span>'
 
     filtered_df['Status'] = filtered_df['Status'].apply(color_status)
@@ -344,10 +306,7 @@ try:
     ]
     available_cols = [col for col in display_cols if col in filtered_df.columns]
 
-    st.write(
-        filtered_df[available_cols].to_html(escape=False, index=False), 
-        unsafe_allow_html=True
-    )
+    st.write(filtered_df[available_cols].to_html(escape=False, index=False), unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"An error occurred: {e}")
