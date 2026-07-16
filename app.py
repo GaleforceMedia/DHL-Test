@@ -65,9 +65,10 @@ def fetch_dhl_status_safe(tracking_numbers):
                 return live_updates, "Success"
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8', errors='ignore')
-        return {}, f"HTTP {e.code}: {error_body}"
+        # WE EXPOSE THE EXACT NUMBERS THAT FAILED HERE:
+        return {}, f"HTTP {e.code} on [{tracking_str}]: {error_body}"
     except Exception as e:
-        return {}, f"Connection Error: {str(e)}"
+        return {}, f"Connection Error on [{tracking_str}]: {str(e)}"
 
 # --- Custom CSS ---
 mamas_and_papas_css = """
@@ -146,7 +147,7 @@ def sync_dhl_api(master_df):
     active_mask = master_df['Status'].astype(str).str.strip().str.lower() != 'delivered'
     active_parcels_raw = master_df[active_mask]['Shipment number'].unique().tolist()
     
-    # NEW: Filter out bad tracking numbers so DHL doesn't throw a length error
+    # Filter out bad tracking numbers so DHL doesn't throw a length error
     active_parcels = [trk for trk in active_parcels_raw if len(trk) >= 10 and trk.lower() != 'nan']
     
     needs_update = []
