@@ -6,7 +6,6 @@ import json
 import time
 import urllib.request
 import urllib.error
-import base64
 from datetime import datetime
 
 # Set up page layout
@@ -14,11 +13,11 @@ st.set_page_config(page_title="Store POD Portal", layout="wide")
 
 # --- DHL API CONFIGURATION ---
 DHL_API_KEY = "i043Uc7SRU6Zxs2GfxGk4QmWa4SxA6Ac"
-DHL_API_SECRET = "oaRzDeAhrwHmHmGy"
 CACHE_FILE = "tracking_cache.json"
 CACHE_EXPIRY = 7200 # 2 hours in seconds
 
 def load_cache():
+    """Loads the hidden vault of tracking data so we don't spam DHL."""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
@@ -28,6 +27,7 @@ def load_cache():
     return {}
 
 def save_cache(cache_data):
+    """Saves live DHL data to the vault."""
     try:
         with open(CACHE_FILE, 'w') as f:
             json.dump(cache_data, f)
@@ -35,49 +35,43 @@ def save_cache(cache_data):
         pass
 
 def fetch_dhl_status_safe(tracking_numbers):
-    """Hits the DHL API and returns statuses AND any error messages for debugging."""
+    """Hits the DHL API with strict, correct headers and returns statuses/errors."""
     if not tracking_numbers:
         return {}, "No numbers to check"
         
     tracking_str = ",".join(tracking_numbers)
     url = f"https://api-eu.dhl.com/track/shipments?trackingNumber={tracking_str}"
     
-    auth_str = base64.b64encode(f"{DHL_API_KEY}:{DHL_API_SECRET}".encode('utf-8')).decode('utf-8')
+    # DHL explicitly requires ONLY the DHL-API-Key header. 
+    # The User-Agent prevents DHL's Apigee firewall from blocking the Python script as a bot.
+    headers = {
+        "DHL-API-Key": DHL_API_KEY,
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     
-    # The Unified Tracking API usually requires only the API Key in the header, 
-    # but we force the Accept header so their Apigee firewall doesn't block us.
-    headers_to_try = [
-        {"DHL-API-Key": DHL_API_KEY, "Accept": "application/json"},
-        {"DHL-API-Key": DHL_API_KEY, "Authorization": f"Basic {auth_str}", "Accept": "application/json"}
-    ]
-    
-    last_error = ""
-    for headers in headers_to_try:
-        req = urllib.request.Request(url, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=10) as response:
-                if response.status == 200:
-                    data = json.loads(response.read().decode())
-                    live_updates = {}
-                    for shipment in data.get('shipments', []):
-                        trk = str(shipment.get('id'))
-                        dhl_status = shipment.get('status', {}).get('statusCode', '').lower()
-                        
-                        if dhl_status == 'delivered':
-                            live_updates[trk] = 'Delivered'
-                        elif dhl_status == 'transit':
-                            live_updates[trk] = 'In Transit'
-                        else:
-                            live_updates[trk] = 'Exception'
-                    return live_updates, "Success"
-        except urllib.error.HTTPError as e:
-            last_error = f"HTTP Error {e.code}: {e.read().decode('utf-8', errors='ignore')}"
-            continue 
-        except Exception as e:
-            last_error = f"Connection Error: {str(e)}"
-            continue
-            
-    return {}, last_error # If it fails, return the error so we can see it on the dashboard
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode())
+                live_updates = {}
+                for shipment in data.get('shipments', []):
+                    trk = str(shipment.get('id'))
+                    dhl_status = shipment.get('status', {}).get('statusCode', '').lower()
+                    
+                    if dhl_status == 'delivered':
+                        live_updates[trk] = 'Delivered'
+                    elif dhl_status == 'transit':
+                        live_updates[trk] = 'In Transit'
+                    else:
+                        live_updates[trk] = 'Exception'
+                return live_updates, "Success"
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8', errors='ignore')
+        return {}, f"HTTP {e.code}: {error_body}"
+    except Exception as e:
+        return {}, f"Connection Error: {str(e)}"
 
 # --- Custom CSS ---
 mamas_and_papas_css = """
@@ -141,7 +135,7 @@ def load_csv_data():
         
     return master_df
 
-# 2. SYNC WITH DHL (Not cached, actively runs but protects rate limit using Vault)
+# 2. SYNC WITH DHL (Protects rate limit using Vault)
 def sync_dhl_api(master_df):
     api_stats = {"vault_hits": 0, "api_calls": 0, "errors": [], "updated_rows": 0}
     
