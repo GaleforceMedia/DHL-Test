@@ -11,6 +11,25 @@ st.set_page_config(page_title="Mamas & Papas Delivery Portal", layout="wide")
 
 CACHE_FILE = "m_and_p_tracking_cache.json"
 
+# --- OFFICIAL STORE LIST ---
+OFFICIAL_STORES = [
+    "Head Office - Reception", "ARNOTTS", "BLANCHARDSTOWN", "DUNDRUM", "BELFAST",
+    "BIRMINGHAM GALLAGHER", "CROYDON", "EDINBURGH", "FAREHAM", "FARNBOROUGH",
+    "GATESHEAD", "GLASGOW", "HULL", "LEEDS", "LIVERPOOL SPEKE", "NOTTINGHAM",
+    "SOUTHAMPTON", "STRATFORD", "STOCKTON", "SWINDON", "THURROCK", "TRAFFORD", 
+    "WHITE CITY", "OUTLET", 
+    "NEXT ARNDALE", "NEXT BEDFORD", "NEXT BRENT CROSS", "NEXT BRISTOL", 
+    "NEXT Charlton", "NEXT Chelsford", "NEXT Cheltenham", "NEXT Crawley", 
+    "NEXT Dundee", "NEXT Enfield", "NEXT EXETER", "NEXT HAYES", "NEXT HIGH WYCOMBE", 
+    "NEXT Ipswich", "NEXT Leicester", "NEXT Luton", "NEXT MAIDSTONE", 
+    "NEXT MILTON KEYNES", "NEXT New Malden", "NEXT NORWICH", "NEXT Oxford", 
+    "NEXT Peterborough", "NEXT Plymouth", "NEXT Poole", "NEXT Preston", 
+    "NEXT SHEFFIELD", "NEXT SHOREHAM", "NEXT Shrewsbury", "NEXT SOLIHULL", 
+    "NEXT SWANSEA", "NEXT Tamworth", "NEXT WATFORD", 
+    "M&S Banbury", "M&S Bluewater", "M&S Cardiff", "M&S Cheshire Oaks", 
+    "M&S Lisburn", "M&S Longbridge", "M&S Warrington", "M&S Westwood Cross", "M&S York"
+]
+
 def load_cache():
     if os.path.exists(CACHE_FILE):
         try:
@@ -46,7 +65,6 @@ st.markdown(m_and_p_css, unsafe_allow_html=True)
 col1, col2 = st.columns([1, 5])
 with col1:
     st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
-    # Safety check: only load if the file actually exists on the server
     if os.path.exists("logo.png"):
         st.image("logo.png", width=180)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -138,11 +156,9 @@ try:
     # --- 4-Column Filtering Section ---
     col_filter1, col_filter2, col_filter3, col_filter4 = st.columns(4)
     
-    # Generate alphabetical dropdown lists
-    unique_stores = sorted(df['Business/Recipient name'].dropna().unique()) if 'Business/Recipient name' in df.columns else []
     unique_campaigns = sorted(df['Campaign'].dropna().unique()) if 'Campaign' in df.columns else []
         
-    selected_store = col_filter1.selectbox("SEARCH STORE", ["All Stores"] + list(unique_stores))
+    selected_store = col_filter1.selectbox("SEARCH STORE", ["All Stores"] + OFFICIAL_STORES)
     search_postcode = col_filter2.text_input("SEARCH POSTCODE", placeholder="e.g. B78 3JD")
     search_ref = col_filter3.text_input("SEARCH CUSTOMER REF.")
     selected_campaign = col_filter4.selectbox("SEARCH CAMPAIGN", ["All Campaigns"] + list(unique_campaigns))
@@ -151,7 +167,10 @@ try:
 
     # Apply the filters
     if selected_store != "All Stores" and 'Business/Recipient name' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['Business/Recipient name'] == selected_store]
+        # Smart Matching Logic: strips "NEXT ", "M&S ", or "M&P " from the search term
+        core_search_term = re.sub(r'^(NEXT|M&S|M&P)\s+', '', selected_store, flags=re.IGNORECASE).strip()
+        filtered_df = filtered_df[filtered_df['Business/Recipient name'].astype(str).str.contains(core_search_term, case=False, na=False)]
+        
     if search_postcode.strip():
         filtered_df = filtered_df[filtered_df['Postal Code'].astype(str).str.contains(search_postcode.strip(), case=False, na=False)]
     if search_ref.strip() and 'Customer reference' in filtered_df.columns:
