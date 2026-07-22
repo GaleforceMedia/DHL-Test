@@ -45,13 +45,11 @@ st.markdown(m_and_p_css, unsafe_allow_html=True)
 # --- Header Section ---
 col1, col2 = st.columns([1, 5])
 with col1:
-    try:
-        st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
-        # Assuming the asset is named mamas-papas-logo.png
-        st.image("mamas-papas-logo.png", width=180) 
-        st.markdown("</div>", unsafe_allow_html=True)
-    except FileNotFoundError:
-        pass
+    st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
+    # Safety check: only load if the file actually exists on the server
+    if os.path.exists("logo.png"):
+        st.image("logo.png", width=180)
+    st.markdown("</div>", unsafe_allow_html=True)
 with col2:
     st.title("Mamas & Papas Delivery Portal")
     st.markdown("<p style='color: #6B7280; font-size: 1.1rem; margin-top: 0px; margin-bottom: 30px;'>Track and manage network deliveries.</p>", unsafe_allow_html=True)
