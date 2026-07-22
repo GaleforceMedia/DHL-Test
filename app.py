@@ -135,17 +135,23 @@ try:
     st.markdown(f"<div style='text-align: center; color: #6B7280; font-size: 0.85rem; margin-top: 10px; margin-bottom: 20px; font-weight: 500;'>Network Data Last Synced: {sync_time_str}</div>", unsafe_allow_html=True)
     st.markdown("<hr><br>", unsafe_allow_html=True)
 
-    # --- Side-by-Side Filtering ---
-    col_filter1, col_filter2, col_filter3 = st.columns(3)
+    # --- 4-Column Filtering Section ---
+    col_filter1, col_filter2, col_filter3, col_filter4 = st.columns(4)
     
+    # Generate alphabetical dropdown lists
+    unique_stores = sorted(df['Business/Recipient name'].dropna().unique()) if 'Business/Recipient name' in df.columns else []
     unique_campaigns = sorted(df['Campaign'].dropna().unique()) if 'Campaign' in df.columns else []
         
-    search_postcode = col_filter1.text_input("SEARCH POSTCODE", placeholder="e.g. B78 3JD")
-    search_ref = col_filter2.text_input("SEARCH CUSTOMER REF.")
-    selected_campaign = col_filter3.selectbox("SEARCH CAMPAIGN", ["All Campaigns"] + list(unique_campaigns))
+    selected_store = col_filter1.selectbox("SEARCH STORE", ["All Stores"] + list(unique_stores))
+    search_postcode = col_filter2.text_input("SEARCH POSTCODE", placeholder="e.g. B78 3JD")
+    search_ref = col_filter3.text_input("SEARCH CUSTOMER REF.")
+    selected_campaign = col_filter4.selectbox("SEARCH CAMPAIGN", ["All Campaigns"] + list(unique_campaigns))
 
     filtered_df = df.copy()
 
+    # Apply the filters
+    if selected_store != "All Stores" and 'Business/Recipient name' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['Business/Recipient name'] == selected_store]
     if search_postcode.strip():
         filtered_df = filtered_df[filtered_df['Postal Code'].astype(str).str.contains(search_postcode.strip(), case=False, na=False)]
     if search_ref.strip() and 'Customer reference' in filtered_df.columns:
@@ -197,13 +203,13 @@ try:
 
     def color_status(status_val):
         val_lower = str(status_val).strip().lower()
-        bg_color, text_color = "#F1F5F9", "#334155" # Neutral default
+        bg_color, text_color = "#F1F5F9", "#334155" 
         if val_lower == 'delivered':
-            bg_color, text_color = "#E2E8F0", "#0F172A" # Darker grey for delivered
+            bg_color, text_color = "#E2E8F0", "#0F172A" 
         elif val_lower in ['in transit', 'out for delivery']:
-            bg_color, text_color = "#F8FAFC", "#475569" # Light grey for active
+            bg_color, text_color = "#F8FAFC", "#475569" 
         elif 'exception' in val_lower or 'delay' in val_lower:
-            bg_color, text_color = "#FEE2E2", "#991B1B" # Red for exception
+            bg_color, text_color = "#FEE2E2", "#991B1B" 
         return f'<span style="background-color: {bg_color}; color: {text_color}; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; border: 1px solid #CBD5E1;">{status_val}</span>'
 
     filtered_df['Status'] = filtered_df['Status'].apply(color_status)
