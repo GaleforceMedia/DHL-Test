@@ -1,0 +1,38 @@
+name: DHL Automated Background Sync
+
+on:
+  schedule:
+    - cron: '0 8,12,15,18 * * 1-5'
+  workflow_dispatch: 
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # Explicitly grants the bot permission to push the file back to your repo
+    permissions:
+      contents: write 
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      # FIX: Installs the required data library before running
+      - name: Install Dependencies
+        run: pip install pandas
+
+      - name: Run DHL Sync
+        run: python sync_dhl.py
+        env:
+          DHL_API_KEY: ${{ secrets.DHL_API_KEY }}
+
+      - name: Commit & Push Updated Cache
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Auto-update DHL tracking statuses [skip ci]" || exit 0
+          git push
