@@ -8,19 +8,19 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # Explicitly grants the bot permission to push the file back to your repo
     permissions:
       contents: write 
     steps:
+      # Updated to v4 to clear Node.js 20 warning
       - name: Check out repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
+      # Updated to v5 to clear Node.js 20 warning
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
-      # FIX: Installs the required data library before running
       - name: Install Dependencies
         run: pip install pandas
 
