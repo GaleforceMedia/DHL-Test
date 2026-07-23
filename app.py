@@ -72,7 +72,7 @@ with col2:
     st.title("Mamas & Papas Delivery Portal")
     st.markdown("<p style='color: #6B7280; font-size: 1.1rem; margin-top: 0px; margin-bottom: 30px;'>Track and manage network deliveries.</p>", unsafe_allow_html=True)
 
-# 1. LOAD CSV DATA (Purely read-only)
+# 1. LOAD CSV DATA & APPLY CACHE
 @st.cache_data(ttl=60) 
 def load_and_merge_data():
     all_files = sorted(glob.glob("*.csv"))
@@ -104,9 +104,17 @@ def load_and_merge_data():
         master_df['Dispatch Date Parsed'] = pd.to_datetime(master_df['Dispatch date'], format='%d/%m/%Y', errors='coerce')
         
     cache = load_cache()
+    
+    # Apply Live Statuses
     if 'Status' in master_df.columns:
         master_df['Status'] = master_df.apply(
             lambda row: cache.get(str(row['Shipment number']), {}).get('status', row['Status']), axis=1
+        )
+        
+    # Apply Live ETAs
+    if 'ETA' in master_df.columns:
+        master_df['ETA'] = master_df.apply(
+            lambda row: cache.get(str(row['Shipment number']), {}).get('eta') or row['ETA'], axis=1
         )
         
     return master_df
@@ -165,9 +173,7 @@ try:
 
     filtered_df = df.copy()
 
-    # Apply the filters
     if selected_store != "All Stores" and 'Business/Recipient name' in filtered_df.columns:
-        # Smart Matching Logic: strips "NEXT ", "M&S ", or "M&P " from the search term
         core_search_term = re.sub(r'^(NEXT|M&S|M&P)\s+', '', selected_store, flags=re.IGNORECASE).strip()
         filtered_df = filtered_df[filtered_df['Business/Recipient name'].astype(str).str.contains(core_search_term, case=False, na=False)]
         
@@ -220,16 +226,23 @@ try:
 
     filtered_df['Tracking Link'] = filtered_df['Shipment number'].apply(make_clickable)
 
+    # --- NEW COLOR CODING LOGIC ---
     def color_status(status_val):
         val_lower = str(status_val).strip().lower()
-        bg_color, text_color = "#F1F5F9", "#334155" 
-        if val_lower == 'delivered':
-            bg_color, text_color = "#E2E8F0", "#0F172A" 
-        elif val_lower in ['in transit', 'out for delivery']:
-            bg_color, text_color = "#F8FAFC", "#475569" 
+        
+        # Default Neutral Gray (Order Received, Unknown)
+        bg_color, text_color, border_color = "#F1F5F9", "#334155", "#CBD5E1"
+        
+        if 'delivered' in val_lower:
+            bg_color, text_color, border_color = "#DCFCE7", "#166534", "#BBF7D0" # Green
+        elif 'we have your parcel' in val_lower:
+            bg_color, text_color, border_color = "#FEF08A", "#854D0E", "#FDE047" # Yellow
+        elif any(x in val_lower for x in ['in transit', 'out for delivery', 'arrival', 'departed', 'with delivery courier']):
+            bg_color, text_color, border_color = "#FFEDD5", "#9A3412", "#FED7AA" # Orange
         elif 'exception' in val_lower or 'delay' in val_lower:
-            bg_color, text_color = "#FEE2E2", "#991B1B" 
-        return f'<span style="background-color: {bg_color}; color: {text_color}; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; border: 1px solid #CBD5E1;">{status_val}</span>'
+            bg_color, text_color, border_color = "#FEE2E2", "#991B1B", "#FECACA" # Red
+            
+        return f'<span style="background-color: {bg_color}; color: {text_color}; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; border: 1px solid {border_color};">{status_val}</span>'
 
     filtered_df['Status'] = filtered_df['Status'].apply(color_status)
 
