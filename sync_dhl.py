@@ -7,8 +7,11 @@ import glob
 import pandas as pd
 import re
 
-# Uses a GitHub Secret if available, otherwise falls back to the hardcoded key
-DHL_API_KEY = os.environ.get("DHL_API_KEY", "i043Uc7SRU6Zxs2GfxGk4QmWa4SxA6Ac")
+# FIX 1: Safely handle GitHub Actions empty secret injection
+DHL_API_KEY = os.environ.get("DHL_API_KEY", "").strip()
+if not DHL_API_KEY:
+    DHL_API_KEY = "i043Uc7SRU6Zxs2GfxGk4QmWa4SxA6Ac" # Fallback key
+
 CACHE_FILE = "m_and_p_tracking_cache.json"
 
 def load_cache():
@@ -75,12 +78,24 @@ def fetch_with_backoff(tracking_num, max_retries=4):
                 if response.status == 200:
                     data = json.loads(response.read().decode())
                     for shipment in data.get('shipments', []):
-                        return shipment.get('status', {}).get('statusCode', '').lower()
+                        status_obj = shipment.get('status', {})
+                        
+                        # FIX 2: Grab the exact human-readable status text from DHL
+                        code = status_obj.get('statusCode', '').lower()
+                        text = status_obj.get('status', '')
+                        
+                        if not text:
+                            text = code.replace('-', ' ').title()
+                            
+                        return {"code": code, "text": text}
         except urllib.error.HTTPError as e:
             if e.code in [429, 503]: 
                 print(f"⚠️ DHL Limit on {tracking_num}. Backing off for {delay}s (Attempt {attempt + 1})...")
                 time.sleep(delay)
                 delay *= 2 
+            elif e.code == 404:
+                print(f"⚠️ {tracking_num} not found on DHL yet (Pre-dispatch).")
+                return None
             else:
                 print(f"HTTP Error {e.code} on {tracking_num}")
                 break
@@ -103,19 +118,20 @@ def run_sync():
     current_time = time.time()
     
     for trk in active_numbers:
-        if cache.get(trk, {}).get('status') == 'Delivered':
+        # Skip if already marked delivered
+        if cache.get(trk, {}).get('status', '').lower() == 'delivered' or cache.get(trk, {}).get('code') == 'delivered':
             continue
             
         print(f"Checking {trk}...")
-        status_code = fetch_with_backoff(trk)
+        result = fetch_with_backoff(trk)
         
-        if status_code:
-            if status_code == 'delivered':
-                cache[trk] = {'status': 'Delivered', 'timestamp': current_time}
-            elif status_code == 'transit':
-                cache[trk] = {'status': 'In Transit', 'timestamp': current_time}
-            else:
-                cache[trk] = {'status': 'Exception', 'timestamp': current_time}
+        if result:
+            # We now inject the exact descriptive text DHL provided
+            cache[trk] = {
+                'status': result['text'], 
+                'code': result['code'],
+                'timestamp': current_time
+            }
                 
         time.sleep(1.0)
         
