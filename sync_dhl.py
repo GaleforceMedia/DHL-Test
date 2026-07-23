@@ -7,7 +7,6 @@ import glob
 import pandas as pd
 import re
 
-# FIX 1: Safely handle GitHub Actions empty secret injection
 DHL_API_KEY = os.environ.get("DHL_API_KEY", "").strip()
 if not DHL_API_KEY:
     DHL_API_KEY = "i043Uc7SRU6Zxs2GfxGk4QmWa4SxA6Ac" # Fallback key
@@ -80,14 +79,25 @@ def fetch_with_backoff(tracking_num, max_retries=4):
                     for shipment in data.get('shipments', []):
                         status_obj = shipment.get('status', {})
                         
-                        # FIX 2: Grab the exact human-readable status text from DHL
                         code = status_obj.get('statusCode', '').lower()
                         text = status_obj.get('status', '')
                         
                         if not text:
                             text = code.replace('-', ' ').title()
                             
-                        return {"code": code, "text": text}
+                        # Extract and format the Estimated Time of Delivery
+                        raw_eta = shipment.get('estimatedTimeOfDelivery', '')
+                        formatted_eta = ""
+                        if raw_eta and len(raw_eta) >= 10:
+                            date_part = raw_eta[:10]
+                            try:
+                                parts = date_part.split('-')
+                                if len(parts) == 3:
+                                    formatted_eta = f"{parts[2]}/{parts[1]}/{parts[0]}" # DD/MM/YYYY
+                            except:
+                                formatted_eta = raw_eta
+                            
+                        return {"code": code, "text": text, "eta": formatted_eta}
         except urllib.error.HTTPError as e:
             if e.code in [429, 503]: 
                 print(f"⚠️ DHL Limit on {tracking_num}. Backing off for {delay}s (Attempt {attempt + 1})...")
@@ -118,7 +128,6 @@ def run_sync():
     current_time = time.time()
     
     for trk in active_numbers:
-        # Skip if already marked delivered
         if cache.get(trk, {}).get('status', '').lower() == 'delivered' or cache.get(trk, {}).get('code') == 'delivered':
             continue
             
@@ -126,10 +135,11 @@ def run_sync():
         result = fetch_with_backoff(trk)
         
         if result:
-            # We now inject the exact descriptive text DHL provided
+            # Save the text, code, and the new ETA to the vault
             cache[trk] = {
                 'status': result['text'], 
                 'code': result['code'],
+                'eta': result['eta'],
                 'timestamp': current_time
             }
                 
