@@ -18,7 +18,7 @@
         "status": "We have your parcel",
         "code": "transit",
         "eta": "02/07/2026",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120252694582": {
         "status": "Delivered",
@@ -378,7 +378,7 @@
         "status": "We have your parcel",
         "code": "transit",
         "eta": "16/06/2026",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253686396": {
         "status": "Delivered",
@@ -387,10 +387,10 @@
         "timestamp": 1785490853.6355486
     },
     "60120253686448": {
-        "status": "Out for delivery",
-        "code": "transit",
+        "status": "Delivered",
+        "code": "delivered",
         "eta": "31/07/2026",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253687644": {
         "status": "Delivered",
@@ -447,10 +447,10 @@
         "timestamp": 1785512954.6623225
     },
     "60120253686365": {
-        "status": "Out for delivery",
+        "status": "We have your parcel",
         "code": "transit",
-        "eta": "",
-        "timestamp": 1785512954.6623225
+        "eta": "31/07/2026",
+        "timestamp": 1785534377.780246
     },
     "60120253687774": {
         "status": "Delivered",
@@ -468,7 +468,7 @@
         "status": "Out for delivery",
         "code": "transit",
         "eta": "31/07/2026",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253686384": {
         "status": "Delivered",
@@ -567,10 +567,10 @@
         "timestamp": 1785512954.6623225
     },
     "60120253686443": {
-        "status": "Out for delivery",
-        "code": "transit",
+        "status": "Delivered",
+        "code": "delivered",
         "eta": "31/07/2026",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253686458": {
         "status": "Delivered",
@@ -582,7 +582,7 @@
         "status": "We have your parcel",
         "code": "transit",
         "eta": "31/07/2026",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253686454": {
         "status": "Delivered",
@@ -618,7 +618,7 @@
         "status": "We have your parcel",
         "code": "transit",
         "eta": "",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253686352": {
         "status": "Delivered",
@@ -627,10 +627,10 @@
         "timestamp": 1785512954.6623225
     },
     "60120253686375": {
-        "status": "Out for delivery",
-        "code": "transit",
+        "status": "Delivered",
+        "code": "delivered",
         "eta": "",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253686387": {
         "status": "Delivered",
@@ -639,10 +639,10 @@
         "timestamp": 1785512954.6623225
     },
     "60120253686353": {
-        "status": "Out for delivery",
-        "code": "transit",
-        "eta": "",
-        "timestamp": 1785512954.6623225
+        "status": "Delivered",
+        "code": "delivered",
+        "eta": "31/07/2026",
+        "timestamp": 1785534377.780246
     },
     "60120253686402": {
         "status": "Delivered",
@@ -654,7 +654,7 @@
         "status": "We have your parcel",
         "code": "transit",
         "eta": "31/07/2026",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253686378": {
         "status": "Delivered",
@@ -672,25 +672,25 @@
         "status": "We have your parcel",
         "code": "transit",
         "eta": "31/07/2026",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253686421": {
-        "status": "We have your parcel",
-        "code": "transit",
-        "eta": "",
-        "timestamp": 1785512954.6623225
+        "status": "Delivered",
+        "code": "delivered",
+        "eta": "31/07/2026",
+        "timestamp": 1785534377.780246
     },
     "60120253686468": {
         "status": "We have your parcel",
         "code": "transit",
         "eta": "",
-        "timestamp": 1785512954.6623225
+        "timestamp": 1785534377.780246
     },
     "60120253686413": {
-        "status": "Out for delivery",
-        "code": "transit",
-        "eta": "",
-        "timestamp": 1785512954.6623225
+        "status": "Delivered",
+        "code": "delivered",
+        "eta": "31/07/2026",
+        "timestamp": 1785534377.780246
     },
     "60120253687696": {
         "status": "Delivered",
@@ -725,7 +725,7 @@
     "60120253686419": {
         "status": "We have your parcel",
         "code": "transit",
-        "eta": "31/07/2026",
-        "timestamp": 1785512954.6623225
+        "eta": "",
+        "timestamp": 1785534377.780246
     }
 }
