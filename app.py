@@ -184,12 +184,16 @@ try:
     if selected_campaign != "All Campaigns":
         filtered_df = filtered_df[filtered_df['Campaign'] == selected_campaign]
 
-    # --- Dual-Layer Auto-Sort Logic ---
-    filtered_df['Is_Delivered'] = filtered_df['Clean Status'] == 'delivered'
-    if 'Dispatch Date Parsed' in filtered_df.columns:
-        filtered_df = filtered_df.sort_values(by=['Is_Delivered', 'Dispatch Date Parsed'], ascending=[True, False])
-    else:
-        filtered_df = filtered_df.sort_values(by=['Is_Delivered'], ascending=[True])
+# --- Auto-Sort Logic: Date (Newest First) -> Store Name (A-Z) ---
+    if 'Dispatch Date Parsed' in filtered_df.columns and 'Business/Recipient name' in filtered_df.columns:
+        filtered_df = filtered_df.sort_values(
+            by=['Dispatch Date Parsed', 'Business/Recipient name'], 
+            ascending=[False, True]
+        )
+    elif 'Dispatch Date Parsed' in filtered_df.columns:
+        filtered_df = filtered_df.sort_values(by=['Dispatch Date Parsed'], ascending=[False])
+    elif 'Business/Recipient name' in filtered_df.columns:
+        filtered_df = filtered_df.sort_values(by=['Business/Recipient name'], ascending=[True])
 
     # --- EXPORT FEATURE ---
     export_df = filtered_df.copy()
